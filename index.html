@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS // REAL-TIME MONITOR</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --primary: #00ff9d;
+            --primary-dim: rgba(0, 255, 157, 0.1);
+            --accent: #00d2ff;
+            --danger: #ff3860;
+            --bg-dark: #0a0b10;
+            --panel-bg: rgba(16, 20, 25, 0.85);
+            --grid-color: rgba(0, 255, 157, 0.05);
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--primary);
+            font-family: 'Rajdhani', sans-serif;
+            overflow: hidden;
+            background-image: 
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(0, 255, 157, 0.2);
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.05);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel::before { content: ''; position: absolute; top: 0; left: 0; width: 10px; height: 10px; border-top: 2px solid var(--primary); border-left: 2px solid var(--primary); }
+        .panel::after { content: ''; position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-bottom: 2px solid var(--primary); border-right: 2px solid var(--primary); }
+
+        .mono { font-family: 'Share Tech Mono', monospace; }
+
+        /* Fan Animation */
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .fan-blade { animation: spin 0s linear infinite; } /* Speed controlled by JS */
+
+        .bar-container { background: rgba(0,0,0,0.5); height: 6px; width: 100%; position: relative; overflow: hidden; }
+        .bar-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.3s ease-out; box-shadow: 0 0 10px var(--primary); }
+
+        canvas { width: 100%; height: 100%; display: block; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: var(--primary); }
+    </style>
+</head>
+<body class="h-screen w-screen p-4 flex flex-col gap-4">
+
+    <div class="scanlines"></div>
+
+    <!-- Header -->
+    <header class="flex justify-between items-end border-b border-[rgba(0,255,157,0.2)] pb-2 mx-2">
+        <div>
+            <h1 class="text-4xl font-bold tracking-widest text-white uppercase"><i class="fas fa-microchip text-emerald-400 mr-3"></i>Nexus<span class="text-emerald-500 text-sm align-top">Core</span></h1>
+            <p class="mono text-xs text-emerald-400/70 tracking-[0.2em]">CONNECTED TO LOCALHOST</p>
+        </div>
+        <div class="text-right mono text-xs">
+            <div id="clock" class="text-xl font-bold text-white">00:00:00</div>
+            <div id="date" class="text-emerald-400/70">Initializing...</div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main class="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-hidden p-2">
+        
+        <!-- Column 1: CPU & Cores -->
+        <div class="flex flex-col gap-4 col-span-1">
+            <div class="panel flex-1 p-4">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-lg font-bold uppercase"><i class="fas fa-brain mr-2"></i>CPU</h2>
+                    <span id="cpu-total" class="mono text-3xl font-bold text-white">0%</span>
+                </div>
+                
+                <div class="relative h-32 w-full mb-4 bg-black/40 border border-emerald-900/50">
+                    <canvas id="cpuGraph"></canvas>
+                </div>
+
+                <div class="grid grid-cols-4 gap-1 overflow-y-auto pr-1 flex-1" id="core-grid">
+                    <!-- Cores injected by JS -->
+                </div>
+            </div>
+
+            <div class="panel h-32 p-4 flex items-center justify-between">
+                <div class="relative w-24 h-24 flex items-center justify-center">
+                    <svg viewBox="0 0 100 100" class="absolute w-full h-full text-emerald-900">
+                        <circle cx="50" cy="50" r="48" fill="none" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                    <i class="fas fa-fan text-4xl text-emerald-400 fan-blade" id="fan-icon"></i>
+                </div>
+                <div class="text-right flex-1 pl-4">
+                    <h3 class="text-xs text-gray-400 uppercase">Thermal Sensor</h3>
+                    <div class="text-3xl font-bold text-white mono mb-1" id="temp-display">--°C</div>
+                    <div class="w-full bg-gray-800 h-1 mt-2">
+                        <div class="h-full bg-orange-500 transition-all duration-300" style="width: 0%" id="temp-bar"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 2: Memory & Network -->
+        <div class="flex flex-col gap-4 col-span-1 md:col-span-2">
+            <!-- Memory Panel -->
+            <div class="panel p-4 h-1/3">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-lg font-bold uppercase"><i class="fas fa-memory mr-2"></i>RAM</h2>
+                    <span id="mem-total-display" class="mono text-xs text-gray-400">TOTAL: -- GB</span>
+                </div>
+                <div class="flex gap-6 h-full items-center">
+                    <div class="relative">
+                        <svg class="w-24 h-24 transform -rotate-90">
+                            <circle cx="48" cy="48" r="40" stroke="#1a202c" stroke-width="8" fill="transparent" />
+                            <circle id="mem-circle" cx="48" cy="48" r="40" stroke="#00ff9d" stroke-width="8" fill="transparent" 
+                                    stroke-dasharray="251.2" stroke-dashoffset="251.2" class="transition-all duration-500" />
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center text-xl font-bold text-white mono" id="mem-percent">0%</div>
+                    </div>
+                    <div class="flex-1 flex flex-col gap-4 justify-center">
+                        <div>
+                            <div class="flex justify-between text-xs mb-1"><span>USED</span><span id="mem-used" class="text-white">0 GB</span></div>
+                            <div class="bar-container"><div class="bar-fill" id="mem-bar-used" style="width: 0%"></div></div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1"><span>AVAILABLE</span><span id="mem-avail" class="text-white">0 GB</span></div>
+                            <div class="bar-container"><div class="bar-fill bg-blue-500" id="mem-bar-avail" style="width: 0%; background: #00d2ff;"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Network Panel -->
+            <div class="panel flex-1 p-4 relative">
+                <div class="flex justify-between items-center mb-2 z-10 relative">
+                    <h2 class="text-lg font-bold uppercase"><i class="fas fa-network-wired mr-2"></i>Network</h2>
+                    <div class="flex gap-4 text-xs mono">
+                        <span class="text-accent"><i class="fas fa-arrow-down"></i> <span id="net-down">0.0B</span>/s</span>
+                        <span class="text-primary"><i class="fas fa-arrow-up"></i> <span id="net-up">0.0B</span>/s</span>
+                    </div>
+                </div>
+                <div class="absolute inset-0 pt-12 pb-2 px-2">
+                    <canvas id="netGraph"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 3: System & Disk -->
+        <div class="flex flex-col gap-4 col-span-1">
+            <!-- System Info -->
+            <div class="panel p-4">
+                <h2 class="text-lg font-bold uppercase mb-4"><i class="fas fa-info-circle mr-2"></i>System</h2>
+                <div class="space-y-3 mono text-sm">
+                    <div class="flex justify-between border-b border-gray-800 pb-1">
+                        <span class="text-gray-500">OS</span>
+                        <span class="text-white" id="os-info">Loading...</span>
+                    </div>
+                    <div class="flex justify-between border-b border-gray-800 pb-1">
+                        <span class="text-gray-500">CORES</span>
+                        <span class="text-white" id="core-count">--</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">UPTIME</span>
+                        <span class="text-accent" id="uptime">00:00:00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Disk -->
+            <div class="panel p-4 flex-1">
+                 <h2 class="text-lg font-bold uppercase mb-4"><i class="fas fa-hdd mr-2"></i>Storage</h2>
+                 <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="font-bold text-white">MAIN DRIVE</span>
+                            <span class="text-accent" id="disk-percent">0%</span>
+                        </div>
+                        <div class="bar-container h-2 rounded-full overflow-hidden">
+                            <div class="bar-fill" id="disk-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-gray-500 mt-1">
+                            <span id="disk-used">0 GB Used</span>
+                            <span id="disk-total">0 GB Total</span>
+                        </div>
+                    </div>
+                 </div>
+            </div>
+
+            <!-- Battery -->
+            <div class="panel p-4 h-24 flex items-center gap-4">
+                <i class="fas fa-battery-full text-3xl text-gray-600" id="battery-icon"></i>
+                <div class="flex-1">
+                    <div class="flex justify-between items-end">
+                        <span class="text-sm font-bold uppercase">Power</span>
+                        <span class="text-xl font-bold mono text-white" id="battery-level">--%</span>
+                    </div>
+                    <div class="bar-container mt-2">
+                        <div class="bar-fill bg-white" id="battery-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- GRAPHING CLASS ---
+        class Graph {
+            constructor(canvasId, color) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.data = new Array(50).fill(0); // 50 data points
+                this.color = color;
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            resize() {
+                this.canvas.width = this.canvas.parentElement.clientWidth;
+                this.canvas.height = this.canvas.parentElement.clientHeight;
+            }
+
+            update(newValue) {
+                this.data.push(newValue);
+                this.data.shift();
+                this.draw();
+            }
+
+            draw() {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                const ctx = this.ctx;
+                
+                // Clear
+                ctx.clearRect(0, 0, w, h);
+
+                // Find max for scaling
+                const max = Math.max(...this.data, 100); // Minimum scale of 100
+
+                ctx.beginPath();
+                ctx.moveTo(0, h - (this.data[0] / max) * h);
+
+                for (let i = 1; i < this.data.length; i++) {
+                    const x = (i / (this.data.length - 1)) * w;
+                    const y = h - (this.data[i] / max) * h;
+                    ctx.lineTo(x, y);
+                }
+
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Gradient Fill
+                ctx.lineTo(w, h);
+                ctx.lineTo(0, h);
+                const grad = ctx.createLinearGradient(0, 0, 0, h);
+                grad.addColorStop(0, this.color.replace(')', ', 0.2)').replace('rgb', 'rgba'));
+                grad.addColorStop(1, 'transparent');
+                ctx.fillStyle = grad;
+                ctx.fill();
+            }
+        }
+
+        const cpuGraph = new Graph('cpuGraph', '#00ff9d');
+        const netGraph = new Graph('netGraph', '#00d2ff');
+
+        // --- CORE GRID BUILDER ---
+        const coreGrid = document.getElementById('core-grid');
+        let coresBuilt = false;
+        let coreElements = [];
+
+        function buildCores(count) {
+            coreGrid.innerHTML = '';
+            coreElements = [];
+            for(let i=0; i<count; i++) {
+                const div = document.createElement('div');
+                div.className = 'bg-black/50 border border-gray-800 p-1 flex flex-col items-center justify-end h-12 relative overflow-hidden';
+                
+                const fill = document.createElement('div');
+                fill.className = 'absolute bottom-0 left-0 right-0 bg-emerald-500/20 transition-all duration-300';
+                fill.style.height = '0%';
+                
+                const label = document.createElement('span');
+                label.className = 'relative z-10 text-[8px] font-bold text-gray-500';
+                label.innerText = `C${i}`;
+                
+                div.appendChild(fill);
+                div.appendChild(label);
+                coreGrid.appendChild(div);
+                
+                coreElements.push(fill);
+            }
+            coresBuilt = true;
+        }
+
+        // --- MAIN FETCH LOOP ---
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                // 1. CPU
+                document.getElementById('cpu-total').innerText = data.cpu.total + '%';
+                cpuGraph.update(data.cpu.total);
+                
+                if(!coresBuilt) buildCores(data.cpu.cores.length);
+                
+                data.cpu.cores.forEach((load, i) => {
+                    if(coreElements[i]) {
+                        coreElements[i].style.height = load + '%';
+                        // Color changes based on load
+                        coreElements[i].className = `absolute bottom-0 left-0 right-0 transition-all duration-300 ${load > 80 ? 'bg-red-500/50' : load > 50 ? 'bg-yellow-500/40' : 'bg-emerald-500/20'}`;
+                    }
+                });
+
+                // 2. Temp & Fan
+                let temp = data.cpu.temp;
+                if(temp !== "N/A") {
+                    document.getElementById('temp-display').innerText = Math.round(temp) + '°C';
+                    document.getElementById('temp-bar').style.width = Math.min(100, (temp/100)*100) + '%';
+                    document.getElementById('temp-bar').className = `h-full transition-all duration-300 ${temp > 75 ? 'bg-red-500' : temp > 55 ? 'bg-orange-500' : 'bg-emerald-500'}`;
+                }
+                // Fan speed logic (simulated based on CPU load if real RPM unavailable)
+                const fanSpeed = Math.max(0.1, 2 - (data.cpu.total / 50)); 
+                document.getElementById('fan-icon').style.animationDuration = fanSpeed + 's';
+
+                // 3. Memory
+                document.getElementById('mem-total-display').innerText = `TOTAL: ${data.memory.total}`;
+                document.getElementById('mem-used').innerText = data.memory.used;
+                document.getElementById('mem-avail').innerText = data.memory.available;
+                document.getElementById('mem-percent').innerText = data.memory.percent + '%';
+                
+                document.getElementById('mem-bar-used').style.width = data.memory.percent + '%';
+                document.getElementById('mem-bar-avail').style.width = (100 - data.memory.percent) + '%';
+                
+                const circumference = 2 * Math.PI * 40; // r=40
+                const offset = circumference - (data.memory.percent / 100) * circumference;
+                document.getElementById('mem-circle').style.strokeDashoffset = offset;
+
+                // 4. Disk
+                document.getElementById('disk-percent').innerText = data.disk.percent + '%';
+                document.getElementById('disk-bar').style.width = data.disk.percent + '%';
+                document.getElementById('disk-used').innerText = `${data.disk.used} Used`;
+                document.getElementById('disk-total').innerText = `${data.disk.total} Total`;
+
+                // 5. Network
+                document.getElementById('net-up').innerText = data.network.up + '/s';
+                document.getElementById('net-down').innerText = data.network.down + '/s';
+                // Scale graph based on download speed bytes
+                netGraph.update(data.network.down_bytes);
+
+                // 6. System Info
+                const uptime = data.system.uptime;
+                const h = Math.floor(uptime / 3600).toString().padStart(2, '0');
+                const m = Math.floor((uptime % 3600) / 60).toString().padStart(2, '0');
+                const s = (uptime % 60).toString().padStart(2, '0');
+                document.getElementById('uptime').innerText = `${h}:${m}:${s}`;
+                
+                document.getElementById('os-info').innerText = data.system.platform;
+                document.getElementById('core-count').innerText = data.cpu.count;
+
+                // 7. Battery
+                document.getElementById('battery-level').innerText = data.system.battery + '%';
+                document.getElementById('battery-bar').style.width = data.system.battery + '%';
+                const batIcon = document.getElementById('battery-icon');
+                batIcon.className = `fas fa-battery-${data.system.battery > 80 ? 'full' : data.system.battery > 50 ? 'three-quarters' : data.system.battery > 20 ? 'quarter' : 'empty'} text-3xl ${data.system.charging ? 'text-yellow-400' : 'text-gray-600'}`;
+
+            } catch (e) {
+                console.error("Fetch error:", e);
+            }
+        }
+
+        // Clock
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString();
+            document.getElementById('date').innerText = now.toLocaleDateString();
+        }, 1000);
+
+        // Start Loop
+        setInterval(updateStats, 1000);
+        updateStats();
+
+    </script>
+</body>
+</html>
